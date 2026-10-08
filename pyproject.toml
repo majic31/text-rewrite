@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "text-rewrite"
+version = "0.1.0"
+description = "A high-performance text rewriting and fuzzy phonetic matching engine"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    { name = "Magic Jack", email = "majic31@163.com" }
+]
+dependencies = [
+    "flashtext>=2.7",
+    "hanlp>=2.1.0-alpha.50",
+    "numba>=0.56.0",
+    "numpy>=1.21.0",
+    "pypinyin>=0.49.0",
+    "jieba>=0.42.1"
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["text_rewrite*"]

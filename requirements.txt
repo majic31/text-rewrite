@@ -1,0 +1,7 @@
+flashtext>=2.7
+hanlp>=2.1.0-alpha.50
+pytest>=7.0.0
+numba>=0.56.0
+numpy>=1.21.0
+pypinyin>=0.49.0
+jieba>=0.42.1
