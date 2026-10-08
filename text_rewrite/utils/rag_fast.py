@@ -328,14 +328,6 @@ class PhonemeIndex:
             syls.append(tuple(cur_syl))
         return syls
 
-    def _get_first_syllable(self, phonemes: List[Phoneme]) -> Tuple[str, ...]:
-        cur_syl = []
-        for p in phonemes:
-            if not p.is_tone:
-                cur_syl.append(p.value)
-            if p.is_word_end:
-                break
-        return tuple(cur_syl)
 
     def _expand_syllable(self, syl: Tuple[str, ...]) -> List[Tuple[int, ...]]:
         expanded = [[]]
@@ -364,8 +356,16 @@ class PhonemeIndex:
         phoneme_strs = [p.value for p in phonemes]
         codes = self.encoder.encode_sequence(phoneme_strs)
         
-        syl = self._get_first_syllable(phonemes)
-        key = tuple(self.encoder.encode(v) for v in syl)
+        syls = self._get_syllables(phonemes)
+        if not syls:
+            return
+            
+        if len(syls) >= 2:
+            key_syl = syls[0] + syls[1]
+        else:
+            key_syl = syls[0]
+            
+        key = tuple(self.encoder.encode(v) for v in key_syl)
         self.index_syl[key].append((hotword, codes))
             
         self.all_hotwords.append((hotword, codes))
@@ -384,8 +384,19 @@ class PhonemeIndex:
         
         # 获取输入中的所有音节
         input_syls = self._get_syllables(input_phonemes)
+        # 1. 单音节检索（匹配长度为 1 的热词）
         for syl in input_syls:
             expanded_keys = self._expand_syllable(syl)
+            for key in expanded_keys:
+                for hw, codes in self.index_syl.get(key, []):
+                    if hw not in seen:
+                        candidates.append((hw, codes))
+                        seen.add(hw)
+
+        # 2. 双音节检索（匹配长度 >= 2 的热词）
+        for i in range(len(input_syls) - 1):
+            syl_bigram = input_syls[i] + input_syls[i+1]
+            expanded_keys = self._expand_syllable(syl_bigram)
             for key in expanded_keys:
                 for hw, codes in self.index_syl.get(key, []):
                     if hw not in seen:
