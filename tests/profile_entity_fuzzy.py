@@ -1,4 +1,4 @@
- """
+"""
 Profile EntityAwareFuzzyFilter: 统计候选数 K 及各阶段耗时。
 用法: python tests/profile_entity_fuzzy.py
 """

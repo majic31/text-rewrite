@@ -142,6 +142,19 @@ class EntityAwareFuzzyFilter(BaseFilter):
         from .jieba_ner import JiebaNERFilter
         self.ner_filter = JiebaNERFilter(replace_callback=jieba_callback)
         self.ner_filter._load_model() # Pre-load it
+        
+        # Build prechecker
+        all_tagged_hw = {}
+        all_tagged_thresholds = {}
+        for tag, hw_dict in self.tagged_hotwords.items():
+            all_tagged_hw.update(hw_dict)
+            all_tagged_thresholds.update(self.tagged_thresholds[tag])
+            
+        if all_tagged_hw:
+            self.ner_prechecker = FuzzyPhonemeFilter(hotwords=all_tagged_hw, threshold=0.6)
+            self.ner_prechecker.custom_thresholds = all_tagged_thresholds
+        else:
+            self.ner_prechecker = None
 
     def process(self, text: str) -> str:
         """
@@ -159,6 +172,16 @@ class EntityAwareFuzzyFilter(BaseFilter):
             
         # Step 2: Tag-constrained substitution
         if self.ner_filter:
-            text = self.ner_filter.process(text)
+            # 预检：如果不可能有带标签的热词出现，直接跳过 jieba 分词
+            skip_ner = False
+            if hasattr(self, 'ner_prechecker') and self.ner_prechecker:
+                from text_rewrite.utils.algo_phoneme import get_phoneme_info
+                inp = get_phoneme_info(text)
+                cands = self.ner_prechecker.rag.index.get_candidates(inp)
+                if not cands:
+                    skip_ner = True
+            
+            if not skip_ner:
+                text = self.ner_filter.process(text)
             
         return text

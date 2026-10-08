@@ -53,7 +53,7 @@ class JiebaNERFilter(BaseFilter):
         try:
             # pseg.cut returns a generator of pair(word, flag)
             # flag corresponds to POS tag, e.g., 'nr' for person name
-            terms = list(self._posseg.cut(text))
+            terms = list(self._posseg.cut(text, HMM=False))
             
             if self.replace_callback:
                 return self.replace_callback(terms, text)

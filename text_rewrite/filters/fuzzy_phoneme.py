@@ -45,6 +45,7 @@ class FuzzyPhonemeFilter(BaseFilter):
             self._hw_info_cache[original] = [p.info for p in phonemes]
         
         self.rag.add_hotwords(hw_dict)
+        self.rag.numba_searcher.build_cache(self._hw_info_cache)
 
     def process(self, text: str) -> str:
         """
@@ -77,24 +78,22 @@ class FuzzyPhonemeFilter(BaseFilter):
         # Pre-encode input_info ONCE to avoid O(N_candidates) encoding overhead
         inp_codes, inp_langs, _, inp_is_ws, inp_is_we = self.rag.numba_searcher.encode_input_vecs(input_info)
         
-        for hw_key, _ in candidates:
-            hw_info = self._hw_info_cache.get(hw_key)
-            if not hw_info:
-                continue
-                
-            res = self.rag.numba_searcher.search_with_encoded_input(
-                hw_info, inp_codes, inp_langs, inp_is_ws, inp_is_we, threshold=min_thresh
-            )
-            if res:
-                for score, start_idx, end_idx in res:
-                    # Apply word-specific threshold
-                    if score >= self.custom_thresholds.get(hw_key, self.rag.threshold):
-                        replacements.append({
-                            'score': score,
-                            'start_idx': start_idx,
-                            'end_idx': end_idx,
-                            'replacement': self.hotword_replacements[hw_key]
-                        })
+        candidate_keys = [hw_key for hw_key, _ in candidates]
+        
+        batch_res = self.rag.numba_searcher.search_batch_with_encoded_input(
+            candidate_keys, inp_codes, inp_langs, inp_is_ws, inp_is_we, threshold=min_thresh
+        )
+        
+        for hw_key, res_list in batch_res.items():
+            for score, start_idx, end_idx in res_list:
+                # Apply word-specific threshold
+                if score >= self.custom_thresholds.get(hw_key, self.rag.threshold):
+                    replacements.append({
+                        'score': score,
+                        'start_idx': start_idx,
+                        'end_idx': end_idx,
+                        'replacement': self.hotword_replacements[hw_key]
+                    })
         
         if not replacements:
             return text

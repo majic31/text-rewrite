@@ -8,6 +8,7 @@
 3. 长度过滤跳过不可能的匹配
 """
 
+import traceback
 import numpy as np
 from typing import List, Dict, Tuple, Set, Union
 from collections import defaultdict
@@ -212,6 +213,63 @@ if HAS_NUMBA:
         return out_scores, out_starts, out_ends, n_res
 
 
+    @njit(cache=True)
+    def _batch_search_constrained_numba(
+        flat_codes: np.ndarray,   # 所有热词音素编码拼接 int32
+        flat_langs: np.ndarray,   # int32
+        flat_tone: np.ndarray,    # int32
+        offsets: np.ndarray,      # (H+1,) int64  热词 h 的音素区间 [offsets[h], offsets[h+1])
+        cand_ids: np.ndarray,     # (K,) int64  候选热词 id（按期望的输出顺序）
+        inp_codes: np.ndarray,
+        inp_langs: np.ndarray,
+        inp_is_ws: np.ndarray,
+        inp_is_we: np.ndarray,
+        zh_cost: np.ndarray,
+        threshold: float,
+    ):
+        """
+        对一批候选热词逐个执行 _fuzzy_search_constrained_numba，
+        一次 Numba 调用完成全部 DP，避免 K 次 Python 往返。
+
+        返回 (out_cand, out_scores, out_starts, out_ends)，
+        out_cand 是 cand_ids 中的下标；顺序为候选顺序、同一候选内按终止位置升序，
+        与逐个调用的结果完全一致。
+        """
+        cap = 64
+        o_k  = np.empty(cap, dtype=np.int64)
+        o_sc = np.empty(cap, dtype=np.float64)
+        o_st = np.empty(cap, dtype=np.int32)
+        o_en = np.empty(cap, dtype=np.int32)
+        cnt = 0
+        for k in range(len(cand_ids)):
+            h = cand_ids[k]
+            a = offsets[h]
+            b = offsets[h + 1]
+            sc, st, en, nr = _fuzzy_search_constrained_numba(
+                flat_codes[a:b], flat_langs[a:b], flat_tone[a:b],
+                inp_codes, inp_langs, inp_is_ws, inp_is_we,
+                zh_cost, threshold,
+            )
+            for r in range(nr):
+                if cnt >= cap:
+                    cap *= 2
+                    n_k = np.empty(cap, dtype=np.int64)
+                    n_sc = np.empty(cap, dtype=np.float64)
+                    n_st = np.empty(cap, dtype=np.int32)
+                    n_en = np.empty(cap, dtype=np.int32)
+                    n_k[:cnt] = o_k[:cnt]
+                    n_sc[:cnt] = o_sc[:cnt]
+                    n_st[:cnt] = o_st[:cnt]
+                    n_en[:cnt] = o_en[:cnt]
+                    o_k, o_sc, o_st, o_en = n_k, n_sc, n_st, n_en
+                o_k[cnt] = k
+                o_sc[cnt] = sc[r]
+                o_st[cnt] = st[r]
+                o_en[cnt] = en[r]
+                cnt += 1
+        return o_k[:cnt], o_sc[:cnt], o_st[:cnt], o_en[:cnt]
+
+
 # =============================================================================
 # 音素编码器（字符串 -> 整数）
 # =============================================================================
@@ -250,9 +308,52 @@ class PhonemeIndex:
     
     def __init__(self):
         self.encoder = PhonemeEncoder()
-        # {音素编码: [(热词原文, 音素编码数组), ...]}
-        self.index: Dict[int, List[Tuple[str, np.ndarray]]] = defaultdict(list)
+        # {首音节元组: [(热词原文, 音素编码数组), ...]}
+        self.index_syl: Dict[Tuple[int, ...], List[Tuple[str, np.ndarray]]] = defaultdict(list)
         self.all_hotwords: List[Tuple[str, np.ndarray]] = []
+        
+    def _get_syllables(self, phonemes: List[Phoneme]) -> List[Tuple[str, ...]]:
+        syls = []
+        cur_syl = []
+        for p in phonemes:
+            if p.is_word_start:
+                cur_syl = []
+            if not p.is_tone:
+                cur_syl.append(p.value)
+            if p.is_word_end:
+                if cur_syl:
+                    syls.append(tuple(cur_syl))
+                    cur_syl = []
+        if cur_syl:
+            syls.append(tuple(cur_syl))
+        return syls
+
+    def _get_first_syllable(self, phonemes: List[Phoneme]) -> Tuple[str, ...]:
+        cur_syl = []
+        for p in phonemes:
+            if not p.is_tone:
+                cur_syl.append(p.value)
+            if p.is_word_end:
+                break
+        return tuple(cur_syl)
+
+    def _expand_syllable(self, syl: Tuple[str, ...]) -> List[Tuple[int, ...]]:
+        expanded = [[]]
+        for v in syl:
+            similars = {v}
+            for s_set in SIMILAR_PHONEMES:
+                if v in s_set:
+                    similars.update(s_set)
+            
+            new_expanded = []
+            for prefix in expanded:
+                for sim in similars:
+                    code = self.encoder.phoneme_to_code.get(sim)
+                    if code is not None:
+                        new_expanded.append(prefix + [code])
+            expanded = new_expanded
+            
+        return [tuple(x) for x in expanded if x]
         
     def add(self, hotword: str, phonemes: List[Phoneme]):
         """添加热词到索引，内部自动决定索引哪些位置"""
@@ -263,17 +364,9 @@ class PhonemeIndex:
         phoneme_strs = [p.value for p in phonemes]
         codes = self.encoder.encode_sequence(phoneme_strs)
         
-        # 索引策略：统一索引前两个音素
-        # - 中文：声母+韵母（第一个字的完整拼音）
-        # - 英文：前两个音素（容错首音素识别错误，如 klaude -> Claude）
-        limit = min(len(codes), 2)
-        indices = list(range(limit))
-            
-        # 收集去重后的 target_codes
-        target_codes = {codes[i] for i in indices if i < len(codes)}
-        
-        for code in target_codes:
-            self.index[code].append((hotword, codes))
+        syl = self._get_first_syllable(phonemes)
+        key = tuple(self.encoder.encode(v) for v in syl)
+        self.index_syl[key].append((hotword, codes))
             
         self.all_hotwords.append((hotword, codes))
         
@@ -286,37 +379,18 @@ class PhonemeIndex:
         Args:
             input_phonemes: 输入音素序列 (List[Phoneme])
         """
-        # 获取输入中所有唯一的音素（作为潜在索引音素）
-        input_codes = set()
-        
-        for p in input_phonemes:
-            val = p.value
-            code = self.encoder.phoneme_to_code.get(val)
-            if code is not None:
-                input_codes.add(code)
-            
-            # [核心增强] 如果是中文，也把相似的音素加入搜索范围，以防索引音素识别错误
-            if p.lang != 'zh':
-                continue
-
-            for s_set in SIMILAR_PHONEMES:
-                if val not in s_set:
-                    continue
-                for sim_val in s_set:
-                    sim_code = self.encoder.phoneme_to_code.get(sim_val)
-                    if sim_code is None:
-                        continue
-                    input_codes.add(sim_code)
-
-        # 收集候选
         candidates = []
         seen = set()
-        for code in input_codes:
-            for hw, codes in self.index.get(code, []):
-                if hw in seen:
-                    continue
-                candidates.append((hw, codes))
-                seen.add(hw)
+        
+        # 获取输入中的所有音节
+        input_syls = self._get_syllables(input_phonemes)
+        for syl in input_syls:
+            expanded_keys = self._expand_syllable(syl)
+            for key in expanded_keys:
+                for hw, codes in self.index_syl.get(key, []):
+                    if hw not in seen:
+                        candidates.append((hw, codes))
+                        seen.add(hw)
 
         return candidates
     
@@ -348,6 +422,34 @@ class NumbaSubstringSearch:
         self.encoder = encoder
         self._zh_cost: np.ndarray = None
         self._cost_built_at: int = -1
+        
+        self._hw_keys = []
+        self._hw_key_to_id = {}
+        self._flat_codes = None
+        self._flat_langs = None
+        self._flat_tone = None
+        self._offsets = None
+        
+        self._warmup_numba()
+
+    def _warmup_numba(self):
+        """预热 Numba JIT 编译器，避免首次检索时的数百毫秒延迟毛刺"""
+        if not HAS_NUMBA:
+            return
+        try:
+            dummy_1_i32 = np.array([0], dtype=np.int32)
+            dummy_2_i64 = np.array([0, 1], dtype=np.int64)
+            dummy_1_i64 = np.array([0], dtype=np.int64)
+            dummy_mat = np.zeros((1, 1), dtype=np.float32)
+            
+            _batch_search_constrained_numba(
+                dummy_1_i32, dummy_1_i32, dummy_1_i32,
+                dummy_2_i64, dummy_1_i64,
+                dummy_1_i32, dummy_1_i32, dummy_1_i32, dummy_1_i32,
+                dummy_mat, 0.6
+            )
+        except Exception as e:
+            logging.warning(f"Numba warmup failed (non-fatal): {traceback.format_exc()}")
 
 
     def _ensure_zh_cost(self):
@@ -430,6 +532,76 @@ class NumbaSubstringSearch:
             (float(scores[i]), int(starts[i]), int(ends[i]))
             for i in range(n_res)
         ]
+
+    def build_cache(self, hw_info_dict: Dict[str, List]):
+        """预先将所有热词编码成一维大数组，供批量查询"""
+        self._hw_keys = list(hw_info_dict.keys())
+        self._hw_key_to_id = {k: i for i, k in enumerate(self._hw_keys)}
+        
+        flat_codes = []
+        flat_langs = []
+        flat_tone = []
+        offsets = [0]
+        
+        for k in self._hw_keys:
+            hw_info = hw_info_dict[k]
+            codes, langs, tone, _, _ = self._encode(hw_info)
+            flat_codes.extend(codes)
+            flat_langs.extend(langs)
+            flat_tone.extend(tone)
+            offsets.append(len(flat_codes))
+            
+        self._flat_codes = np.array(flat_codes, dtype=np.int32)
+        self._flat_langs = np.array(flat_langs, dtype=np.int32)
+        self._flat_tone = np.array(flat_tone, dtype=np.int32)
+        self._offsets = np.array(offsets, dtype=np.int64)
+
+    def search_batch_with_encoded_input(
+        self,
+        candidates_keys: List[str],
+        inp_codes: np.ndarray,
+        inp_langs: np.ndarray,
+        inp_is_ws: np.ndarray,
+        inp_is_we: np.ndarray,
+        threshold: float = 0.6,
+    ) -> Dict[str, List[Tuple[float, int, int]]]:
+        """批量对多个候选热词进行 DP，仅有一次 Python 到 Numba 的调用开销"""
+        if not HAS_NUMBA:
+            return {}
+            
+        cand_ids = []
+        valid_keys = []
+        for k in candidates_keys:
+            if k in self._hw_key_to_id:
+                cand_ids.append(self._hw_key_to_id[k])
+                valid_keys.append(k)
+                
+        if not cand_ids:
+            return {}
+            
+        cand_ids = np.array(cand_ids, dtype=np.int64)
+        
+        self._ensure_zh_cost()
+        max_code = int(max(
+            self._flat_codes.max() if len(self._flat_codes) else 0,
+            inp_codes.max() if len(inp_codes) else 0,
+        ))
+        if max_code >= self._zh_cost.shape[0]:
+            self._ensure_zh_cost()
+            
+        o_k, o_sc, o_st, o_en = _batch_search_constrained_numba(
+            self._flat_codes, self._flat_langs, self._flat_tone, self._offsets, cand_ids,
+            inp_codes, inp_langs, inp_is_ws, inp_is_we,
+            self._zh_cost, threshold,
+        )
+        
+        res = defaultdict(list)
+        for i in range(len(o_k)):
+            k_idx = o_k[i]
+            hw_key = valid_keys[k_idx]
+            res[hw_key].append((float(o_sc[i]), int(o_st[i]), int(o_en[i])))
+            
+        return res
 
     def search(
         self, hw_info, input_info, threshold: float = 0.6
