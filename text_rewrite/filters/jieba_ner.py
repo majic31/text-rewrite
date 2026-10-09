@@ -9,7 +9,7 @@ class JiebaNERFilter(BaseFilter):
     Extremely fast POS/NER Filter using Jieba.
     Uses `jieba.posseg` to perform POS tagging.
     """
-    def __init__(self, name: str = "JiebaNERFilter", replace_callback: Callable[[Any, str], str] = None):
+    def __init__(self, replace_callback: Callable[[Any, str], str] = None, name: str = None):
         """
         :param replace_callback: A custom function that takes the jieba.posseg output (generator of pairs)
                                  and returns the modified text string.

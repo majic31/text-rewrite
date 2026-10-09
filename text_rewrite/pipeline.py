@@ -21,6 +21,15 @@ class Pipeline:
         self.filters.append(text_filter)
         return self # For method chaining
 
+    def remove_filter(self, filter_name: str):
+        """
+        Remove a filter from the pipeline by its name.
+        """
+        original_length = len(self.filters)
+        self.filters = [f for f in self.filters if f.name != filter_name]
+        if len(self.filters) == original_length:
+            logger.warning(f"Filter with name '{filter_name}' not found in pipeline.")
+        return self
     def process(self, text: str) -> str:
         """
         Process the input text through all registered filters sequentially.

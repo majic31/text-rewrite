@@ -11,7 +11,7 @@ class FuzzyPhonemeFilter(BaseFilter):
     Fuzzy Phoneme Filter using Numba JIT DP acceleration.
     Handles exact and fuzzy phoneme matches to correct ASR homophone errors.
     """
-    def __init__(self, name: str = "FuzzyPhonemeFilter", hotwords: Dict[str, str] = None, threshold: float = 0.6):
+    def __init__(self, hotwords: Dict[str, str] = None, threshold: float = 0.6, name: str = None):
         """
         :param threshold: The similarity threshold (0.0 to 1.0) for a phoneme sequence to match.
                           0.6 is a good default for allowing some ASR errors.

@@ -7,7 +7,7 @@ class RegexFilter(BaseFilter):
     Regex Filter for pattern-based text replacements.
     Patterns are pre-compiled for performance.
     """
-    def __init__(self, name: str = "RegexFilter", rules: Dict[str, str] = None):
+    def __init__(self, rules: Dict[str, str] = None, name: str = None):
         super().__init__(name=name)
         self.compiled_rules: List[Tuple[re.Pattern, str]] = []
         if rules:

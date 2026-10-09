@@ -13,7 +13,7 @@ class HotwordFilter(BaseFilter):
     Uses Aho-Corasick algorithm via flashtext library.
     Ideal for massive dictionaries (100k+ words).
     """
-    def __init__(self, name: str = "HotwordFilter", hotwords: Dict[str, str] = None, case_sensitive: bool = False):
+    def __init__(self, hotwords: Dict[str, str] = None, case_sensitive: bool = False, name: str = None):
         super().__init__(name=name)
         if KeywordProcessor is None:
             raise ImportError("flashtext library is required for HotwordFilter. Run `pip install flashtext`.")

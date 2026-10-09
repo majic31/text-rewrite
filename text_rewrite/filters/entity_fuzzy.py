@@ -12,7 +12,7 @@ class EntityAwareFuzzyFilter(BaseFilter):
     Combines high-speed global phoneme matching with Jieba-based NER tagging
     to correct ASR homophone errors accurately and efficiently.
     """
-    def __init__(self, name: str = "EntityAwareFuzzyFilter", rules: List[str] = None):
+    def __init__(self, rules: List[str] = None, name: str = None):
         """
         :param rules: A list of rule strings. 
                       Format: `[tag]word1:threshold1|word2:replacement2:threshold2`
