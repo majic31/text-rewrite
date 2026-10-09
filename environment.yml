@@ -1,0 +1,14 @@
+name: text-rewrite
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - flake8
+  # Numba 和 Numpy 推荐通过 conda 安装，因为涉及 C 扩展和 LLVM 依赖，conda 环境更稳定
+  - numba>=0.59.0
+  - numpy>=1.21.0
+  - pip:
+      # 安装当前项目本身以及其在 pyproject.toml 里面定义的所有依赖和测试依赖
+      - -e .[test]
