@@ -11,7 +11,7 @@ from text_rewrite.filters.entity_fuzzy import EntityAwareFuzzyFilter
 logging.basicConfig(level=logging.WARNING)
 
 def run_benchmark(num_exact=9000, num_fuzzy=500):
-    print(f"\n=== SOTA EntityAwareFuzzyFilter 性能压测 (精确词:{num_exact}, 模糊词:{num_fuzzy}) ===")
+    print(f"\n=== EntityAwareFuzzyFilter 性能压测 (精确词:{num_exact}, 模糊词:{num_fuzzy}) ===")
     
     import random
     random.seed(43)
