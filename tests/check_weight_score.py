@@ -72,3 +72,5 @@ if __name__ == "__main__":
     # 场景 4：发音差异很大的情况 (测试张三和展伞)
     analyze_match(target_word="张三", test_text="展伞", weight=0.7)
     analyze_match(target_word="张三", test_text="展伞", weight=1.0)
+
+    analyze_match(target_word="安康", test_text="安刊", weight=0.7)
