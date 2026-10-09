@@ -22,20 +22,20 @@ class FuzzyPhonemeFilter(BaseFilter):
         # Cache hw_info to avoid recomputing
         self._hw_info_cache = {}
         
-        # Optional mapping of original word -> specific threshold
-        self.custom_thresholds = {}
+        # Optional mapping of original word -> specific weight (higher weight = easier to trigger)
+        self.custom_weights = {}
         
         if hotwords:
             self.add_hotwords(hotwords)
             
-    def add_hotwords(self, hotwords: Dict[str, str], custom_thresholds: Dict[str, float] = None):
+    def add_hotwords(self, hotwords: Dict[str, str], custom_weights: Dict[str, float] = None):
         """
         Add hotwords dynamically.
         :param hotwords: Dictionary mapping the phonetic target (e.g., "张三") to the replacement string (e.g., "张三").
-        :param custom_thresholds: Optional dictionary mapping target word to its specific threshold.
+        :param custom_weights: Optional dictionary mapping target word to its specific weight.
         """
-        if custom_thresholds:
-            self.custom_thresholds.update(custom_thresholds)
+        if custom_weights:
+            self.custom_weights.update(custom_weights)
             
         hw_dict = {}
         for original, replacement in hotwords.items():
@@ -68,9 +68,13 @@ class FuzzyPhonemeFilter(BaseFilter):
         input_info = [p.info for p in input_phonemes]
         
         # Find the absolute minimum threshold to query Numba, post-filter later
+        # weight = 1.0 means effective threshold is rag.threshold.
+        # weight = 2.0 means effective threshold is rag.threshold / 2.0.
         min_thresh = self.rag.threshold
-        if self.custom_thresholds:
-            min_thresh = min(min_thresh, min(self.custom_thresholds.values()))
+        if self.custom_weights:
+            max_weight = max(self.custom_weights.values())
+            if max_weight > 0:
+                min_thresh = min_thresh / max_weight
             
         # 3. Perform fine-grained Numba Substring DP search
         replacements = []
@@ -86,8 +90,10 @@ class FuzzyPhonemeFilter(BaseFilter):
         
         for hw_key, res_list in batch_res.items():
             for score, start_idx, end_idx in res_list:
-                # Apply word-specific threshold
-                if score >= self.custom_thresholds.get(hw_key, self.rag.threshold):
+                # Apply word-specific weight (effective threshold = base_threshold / weight)
+                weight = self.custom_weights.get(hw_key, 1.0)
+                eff_threshold = self.rag.threshold / weight if weight > 0 else 1.0
+                if score >= eff_threshold:
                     replacements.append({
                         'score': score,
                         'start_idx': start_idx,

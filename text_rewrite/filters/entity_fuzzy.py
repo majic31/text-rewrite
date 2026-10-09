@@ -22,8 +22,9 @@ class EntityAwareFuzzyFilter(BaseFilter):
         super().__init__(name=name)
         self.global_hotwords = {}
         self.global_thresholds = {}
+        self.global_weights = {}
         self.tagged_hotwords = defaultdict(dict)
-        self.tagged_thresholds = defaultdict(dict)
+        self.tagged_weights = defaultdict(dict)
         
         self.global_filter = None
         self.tagged_filters = {}
@@ -59,37 +60,37 @@ class EntityAwareFuzzyFilter(BaseFilter):
             subparts = [sp.strip() for sp in part.split(':')]
             word = subparts[0]
             replacement = word
-            threshold = 0.6
+            weight = 1.0
             
             if len(subparts) == 2:
                 try:
-                    threshold = float(subparts[1])
+                    weight = float(subparts[1])
                 except ValueError:
                     replacement = subparts[1]
             elif len(subparts) >= 3:
                 replacement = subparts[1]
                 try:
-                    threshold = float(subparts[2])
+                    weight = float(subparts[2])
                 except ValueError:
                     pass
             
             if tag:
                 self.tagged_hotwords[tag][word] = replacement
-                self.tagged_thresholds[tag][word] = threshold
+                self.tagged_weights[tag][word] = weight
             else:
                 self.global_hotwords[word] = replacement
-                self.global_thresholds[word] = threshold
+                self.global_weights[word] = weight
 
     def _rebuild_filters(self):
         # Rebuild global filter
         if self.global_hotwords:
             self.global_filter = FuzzyPhonemeFilter(hotwords=self.global_hotwords, threshold=0.6)
-            self.global_filter.custom_thresholds = self.global_thresholds
+            self.global_filter.custom_weights = self.global_weights
             
         # Rebuild tagged filters
         for tag, hw_dict in self.tagged_hotwords.items():
             f = FuzzyPhonemeFilter(hotwords=hw_dict, threshold=0.6)
-            f.custom_thresholds = self.tagged_thresholds[tag]
+            f.custom_weights = self.tagged_weights[tag]
             self.tagged_filters[tag] = f
 
     def _setup_ner_filter(self):
@@ -145,14 +146,14 @@ class EntityAwareFuzzyFilter(BaseFilter):
         
         # Build prechecker
         all_tagged_hw = {}
-        all_tagged_thresholds = {}
+        all_tagged_weights = {}
         for tag, hw_dict in self.tagged_hotwords.items():
             all_tagged_hw.update(hw_dict)
-            all_tagged_thresholds.update(self.tagged_thresholds[tag])
+            all_tagged_weights.update(self.tagged_weights[tag])
             
         if all_tagged_hw:
             self.ner_prechecker = FuzzyPhonemeFilter(hotwords=all_tagged_hw, threshold=0.6)
-            self.ner_prechecker.custom_thresholds = all_tagged_thresholds
+            self.ner_prechecker.custom_weights = all_tagged_weights
         else:
             self.ner_prechecker = None
 
