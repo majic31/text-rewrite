@@ -13,7 +13,6 @@ authors = [
 ]
 dependencies = [
     "flashtext>=2.7",
-    "hanlp>=2.1.0-alpha.50",
     "numba>=0.56.0",
     "numpy>=1.21.0",
     "pypinyin>=0.49.0",
