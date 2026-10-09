@@ -29,7 +29,7 @@ def run_benchmark(num_exact=9000, num_fuzzy=500):
         
     # 加入我们的目标测试用例
     fuzzy_rules.append("张三:0.7")
-    fuzzy_rules.append("[nr]叶开:0.8")
+    # fuzzy_rules.append("[nr]叶开:0.8")
     fuzzy_rules.append("李四:0.7")
     
     print("正在初始化规则引擎...")
@@ -77,9 +77,23 @@ def run_benchmark(num_exact=9000, num_fuzzy=500):
     end_long = time.perf_counter()
     
     avg_time_long_ms = (end_long - start_long) * 1000 / iterations_long
-    print(f"-> 千字长文本端到端平均处理耗时: {avg_time_long_ms:.2f} ms")
+    print(f"-> 千字长文本(预检命中，触发 Jieba) 端到端平均处理耗时: {avg_time_long_ms:.2f} ms")
+
+    # 生成一篇完全安全的 2000 字长文本（不包含任何可能触发热词的音素）
+    safe_long_text = ""
+    for _ in range(200):
+        safe_long_text += "".join(random.choice("金银铜铁车船机店房门窗桌椅床被衣服裤鞋帽袜书笔纸墨琴棋剑盾弓") for _ in range(10))
+        
+    start_safe = time.perf_counter()
+    for _ in range(iterations_long):
+        pipeline.process(safe_long_text)
+    end_safe = time.perf_counter()
+    
+    avg_safe_long_ms = (end_safe - start_safe) * 1000 / iterations_long
+    print(f"-> 千字长文本(预检安全，跳过 Jieba) 端到端平均处理耗时: {avg_safe_long_ms:.2f} ms")
 
 if __name__ == "__main__":
+    run_benchmark(num_exact=0, num_fuzzy=10000)
     run_benchmark(num_exact=0, num_fuzzy=500)
     run_benchmark(num_exact=0, num_fuzzy=500)
     run_benchmark(num_exact=0, num_fuzzy=3000)

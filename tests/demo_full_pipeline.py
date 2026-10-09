@@ -80,5 +80,12 @@ def run_demo():
         print(f"输出结果: {result}")
         print(f"处理耗时: {(t1-t0)*1000:.2f} ms")
 
+def get_phoneme_info(text):
+    import jieba.posseg as pseg
+    words = pseg.cut(text)
+    for w in words:
+        print(f"词语: {w.word} \t 词性: {w.flag}")
+
 if __name__ == "__main__":
     run_demo()
+    get_phoneme_info('最后通知了夜凯。')

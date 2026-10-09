@@ -105,6 +105,12 @@ def main():
             for k, v in stages.items():
                 print(f"  {k:<14}{v:8.2f} ms")
 
+def print_jieba_tags(text):
+    import jieba.posseg as pseg
+    words = pseg.cut(text)
+    for w in words:
+        print(f"词语: {w.word} \t 词性: {w.flag}")
 
 if __name__ == "__main__":
     main()
+    print_jieba_tags("最后通知了开")

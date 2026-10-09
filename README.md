@@ -79,11 +79,11 @@ pipeline.add_filter(exact_filter)
 pipeline.add_filter(entity_filter)
 
 # 5. 真实流式调用
-text = "那个，昨天通知了一下展伞和里死，但是他也开心了，最后通知了也开。"
+text = "那个，昨天通知了一下展伞和里死，但是他也开心了，最后通知了页开。"
 result = pipeline.process(text)
 
 print(result) 
-# 输出: "，昨天通知了一下张三和李四，但是他也开心了，最后通知了也开。"
+# 输出: "，昨天通知了一下张三和李四，但是他也开心了，最后通知了夜凯。"
 ```
 
 > **注意**：由于初始化 Numba 引擎以及 JIT 预热需要少量时间，建议在服务启动时**单例初始化** `Pipeline` 实例，在后续流式请求中复用该实例调用 `.process(text)`。
