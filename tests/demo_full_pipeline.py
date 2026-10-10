@@ -158,6 +158,7 @@ def demo_english():
         "this is my aple watch",       # 无空格外语连读
         "this is my i phone 15 watch",       # iphone
         "claode is great",            # 中间拼写错误
+        "klaude is great",            # 中间拼写错误
         "klaode is great",            # 中间拼写错误
     ]
     
@@ -168,7 +169,7 @@ def demo_english():
 def get_phoneme_info(text):
     # pyrefly: ignore [missing-import]
     import jieba.posseg as pseg
-    words = pseg.cut(text, HMM=True)
+    words = pseg.cut(text, HMM=False)
     for w in words:
         print(f"词语: {w.word} \t 词性: {w.flag}")
 

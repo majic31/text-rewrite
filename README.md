@@ -1,7 +1,7 @@
 # text-rewrite 🚀
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 **text-rewrite** 是一个专为工业级 ASR（语音识别）后处理设计的**高性能文本纠错与过滤引擎**。其理念通过非侵入式方式修改热词，所有的ASR引擎都可将转写内容通过该框架调用，实现中英文热词纠错效果。本项目经过精密的设计，性能好、对相似读音的识别准、阈值约束合理，一定程度上解决了传统 ASR 热词匹配中常见的“跨词误杀”、“谐音错认”、“英文纠错”，并且性能极高(万级别热词下短句（30字）热词替换仅不到3ms)。
 
