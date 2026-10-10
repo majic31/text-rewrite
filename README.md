@@ -3,13 +3,13 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**text-rewrite** 是一个专为工业级 ASR（语音识别）后处理设计的**高性能文本纠错与过滤引擎**。它将极致的计算效率与高精度的语义约束相结合，完美解决了传统 ASR 热词匹配中常见的“跨词误杀”、“谐音错认”以及“高并发性能瓶颈”问题。
+**text-rewrite** 是一个专为工业级 ASR（语音识别）后处理设计的**高性能文本纠错与过滤引擎**。其理念通过非侵入式方式修改热词，所有的ASR引擎都可将结果通过该框架调用，实现热词效果。本项目经过精密的设计，性能好、对相似读音的识别准、阈值约束合理，一定程度上解决了传统 ASR 热词匹配中常见的“跨词误杀”、“谐音错认”，特别是“高并发性能瓶颈”问题(万级别热词下短句（30字）热词替换仅不到3ms)。
 
 ## ✨ 核心特性
 
 - **极致性能 ($O(N)$ 线性扩展)**：针对万级甚至十万级热词进行专项优化。处理近 2000 字的长文本只需不足 300 毫秒（常规短句 <3ms），不会拖垮流式并发服务器。
-- **Entity-Aware 实体约束引擎**：针对容易误杀的极短词（如人名“叶开” vs “也开心”），创新性引入基于 Jieba 词性标注的轻量级 NER 引擎。**内建极速音素预检机制与无 HMM 模式**，将千字长文本的 NER 解析时间从 400ms 暴砍至 5ms。
-- **双音节倒排索引 (Bigram Syllable Index)**：创新性地构建了基于“首位双音节”自适应哈希倒排池。将 10000 个热词在 2000 字长文本上的 DP 候选空间极致压缩了 98.8%，打破长文本下 $K=100\%$ 的魔咒。
+- **Entity-Aware 实体约束引擎**：针对容易误杀的极短词（如人名“叶开” vs “也开心”），创新性引入基于 Jieba 词性标注的轻量级 NER 引擎。**内建极速音素预检机制与无 HMM 模式**，将千字长文本的 NER 解析时间从 400ms 暴砍至 5ms，万级别热词下短句（30字）热词替换仅不到3ms。
+- **双音节倒排索引 (Bigram Syllable Index)**：创新性地构建了基于“首位双音节”自适应哈希倒排池。将 10000 个热词在 2000 字长文本上的 DP 候选空间极致压缩了 98.8%，打破长文本的魔咒。
 - **Numba Batch DP 加速**：底层基于 Numba JIT 编译的“批量化动态规划（DP）”核心引擎，彻底消除跨语言调度开销，支持纯发音级别的纠错（完美包容平翘舌、前后鼻音、形近音误差）。
 - **微秒级 FlashText 精确匹配**：对于全局安全大词表，底层自动退化为 Aho-Corasick 自动机，做到微秒级无感替换。
 - **Pipeline 乐高式组装**：提供高度可扩展的链式过滤器架构，正则清洗、精准替换、模糊纠错一气呵成。
@@ -31,11 +31,11 @@ pip install -r requirements.txt
    - **作用**：干脏活累活。负责前置格式规整。
    - **场景**：将全角符号转半角、去除多余空格、清理语气词（“呃”、“啊”、“那个”），以及执行如 `四S -> 4S` 这种高度规律性的文本格式化。
 
-2. **`HotwordFilter` (中坚力量：业务绝对权威)**
+2. **`HotwordFilter` (明确的热词替换)**
    - **作用**：基于 FlashText 的极速精确替换，零误杀，快、准、狠。
    - **场景**：用于承载几万到几十万量级的“黑白名单 / 品牌库 / 敏感词库”（如“蔚来”、“极氪”）。用它拦截掉绝大部分必须 100% 准确的词，避免增加下游模糊匹配的开销和误杀率。
 
-3. **`EntityAwareFuzzyFilter` (最后兜底：长尾智能纠错)**
+3. **`EntityAwareFuzzyFilter` (音素热词纠错)**
    - **作用**：收拾残局。
    - **场景**：经过前面精确词表的拦截，剩下的“长尾错别字”（如用户口音导致的“魏来”、“及克”）由它出马，通过发音的编辑距离计算把错别字捞回来。
    - **语法**：`[标签]原词:权重 | 原词2:替换词:权重`
@@ -53,15 +53,11 @@ pip install -r requirements.txt
 
 > **注**：除上述三者外，内部模块如 `FuzzyPhonemeFilter`（底层的 Numba DP 发音匹配引擎）和 `JiebaNERFilter`（底层 NER 引擎）主要作为组件被 `EntityAwareFuzzyFilter` 自动编排调用，在常规业务中通常无需直接操作。
 
-### 🛠 权重诊断与排错工具 (Diagnostic Tool)
+### 🛠 权重诊断、排错工具(Diagnostic Tool)
 在实际业务落地时，如果你发现某个错别字**没有按预期被纠正**，或者某个正常词**被意外误杀**，可以使用内置的诊断脚本来查看底层的真实打分情况，从而精准调优权重：
 
 ```bash
 python tests/check_weight_score.py # 检查权重工具
-python tests/demo_full_pipeline.py # demo，常规用法说明，包括分词情况也可以看到（get_phoneme_info函数）
-python tests/bench_entity_fuzzy.py # 性能测试
-python tests/demo_dynamic_static.py # 工程落地：全局热词与租户热词示例。另外也有一种用法，就是按照hotword作为key，pipeline作为value，存放到cache（或者lru_cache）中使用
-python tests/profile_entity_fuzzy.py # 内部开发者专用：微观耗时剖析与倒排索引压缩率监测
 ```
 
 该工具会直接输出底层 Numba 引擎的真实打分逻辑，帮助你快速理解权重的运作方式：
@@ -69,6 +65,14 @@ python tests/profile_entity_fuzzy.py # 内部开发者专用：微观耗时剖�
 - **场景 B（权重 0.7，适当放宽）**：同样测试“里死”纠正为“李四”。权重提高到 `0.7` 后，及格线降为 `0.8571`。此时 `0.9167 >= 0.8571`，引擎判定符合容错范围，**成功触发修改**。
 
 你可以随时修改该脚本中的 `analyze_match(target_word="你的词", test_text="测试文本", weight=0.7)` 参数，针对你的业务专有名词进行沙盒测试和精细化调参！
+
+### 🛠 测试脚本说明：
+```bash
+python tests/demo_full_pipeline.py # demo，常规用法说明，包括分词情况也可以看到（get_phoneme_info函数）
+python tests/bench_entity_fuzzy.py # 性能测试
+python tests/demo_dynamic_static.py # 工程落地：全局热词与租户热词示例。另外也有一种用法，就是按照hotword作为key，pipeline作为value，存放到cache（或者lru_cache）中使用
+python tests/profile_entity_fuzzy.py # 内部开发者专用：微观耗时剖析与倒排索引压缩率监测
+```
 
 ### 💡 进阶：底层近似音 (Similar Phonemes) 打分逻辑
 为什么有些错别字的打分特别高？引擎底层在进行动态规划（DP）时，内置了一套**近似音损耗系数（Loss Coefficient）**。
