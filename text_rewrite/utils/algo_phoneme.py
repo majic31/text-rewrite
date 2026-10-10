@@ -292,7 +292,7 @@ def _process_en_num(text: str, pos: int, seq: List[Phoneme], split_char: bool) -
     
     if split_char:
         for i, c in enumerate(token):
-            seq.append(Phoneme(c, lang, is_word_start=(i==0), is_word_end=(i==len(token)-1), 
+            seq.append(Phoneme(c, lang, is_word_start=True, is_word_end=True, 
                                char_start=start_pos+i, char_end=start_pos+i+1))
     else:
         seq.append(Phoneme(token, lang, is_word_start=True, is_word_end=True, 

@@ -755,7 +755,7 @@ class FastRAG:
 
 if __name__ == "__main__":
     import random
-    from .algo_phoneme import get_phoneme_seq
+    from .algo_phoneme import get_phoneme_info
     
     logging.basicConfig(level=logging.INFO)
     
@@ -770,7 +770,7 @@ if __name__ == "__main__":
     for i in range(1000):
         length = random.randint(2, 4)
         word = ''.join(random.choice(chinese_chars) for _ in range(length))
-        phonemes = get_phoneme_seq(word)
+        phonemes = get_phoneme_info(word)
         hotwords[word] = phonemes
     
     # 创建 FastRAG
@@ -782,7 +782,7 @@ if __name__ == "__main__":
     
     # 生成输入
     input_text = ''.join(random.choice(chinese_chars) for _ in range(100))
-    input_phonemes = get_phoneme_seq(input_text)
+    input_phonemes = get_phoneme_info(input_text)
     print(f"\n输入: {input_text[:50]}... ({len(input_text)}字, {len(input_phonemes)}音素)")
     
     # 预热 Numba

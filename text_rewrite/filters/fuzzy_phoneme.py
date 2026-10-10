@@ -106,8 +106,8 @@ class FuzzyPhonemeFilter(BaseFilter):
         if not replacements:
             return text
             
-        # 4. Resolve overlaps (greedy: highest score, then longest span)
-        replacements.sort(key=lambda x: (-x['score'], -(x['end_idx'] - x['start_idx'])))
+        # 4. Resolve overlaps (greedy: highest score, then shortest span to avoid eating adjacent words across spaces)
+        replacements.sort(key=lambda x: (-x['score'], (x['end_idx'] - x['start_idx'])))
         
         final_reps = []
         used_indices = set()

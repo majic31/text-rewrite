@@ -34,6 +34,8 @@ SIMILAR_PHONEMES = [
     {'p', 'b'},
     {'t', 'd'},
     {'k', 'g'},
+    # 中英易混字母发音
+    {'c', 'k'},
 ]
 
 def lcs_length(s1: str, s2: str) -> int:

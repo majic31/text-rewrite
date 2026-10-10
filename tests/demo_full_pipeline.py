@@ -136,6 +136,35 @@ def demo2():
     # 没有词性后，可能会误替换。结果为：那个，昨天通知了一下展伞和里死，但是他叶开心了，最后通知了叶开。
     print(f'notag result: {result_notag}')
 
+def demo_english():
+    print("\n=== English Fuzzy Correction Demo ===")
+    from text_rewrite.pipeline import Pipeline
+    from text_rewrite.filters.entity_fuzzy import EntityAwareFuzzyFilter
+    
+    # 英文模糊纠错：天然支持拼写错误、大小写无关、以及外语无空格粘连纠错
+    # 对于带有特定业务外语的 ASR，可以通过添加 [eng] 词性来限定
+    fuzzy_rules = [
+        "Claude:1.0",         # 正常权重，默认 threshold 0.6
+        "[eng]Apple:0.8",      # 仅在 Jieba 识别出 eng 词性时触发纠错
+        "iphone 15:1.0"
+    ]
+    
+    entity_filter = EntityAwareFuzzyFilter(rules=fuzzy_rules, use_hmm=False)
+    p = Pipeline()
+    p.add_filter(entity_filter)
+    
+    test_cases = [
+        "I use cloude everyday",      # 拼写错误 (o -> a)，大小写脱敏
+        "this is my aple watch",       # 无空格外语连读
+        "this is my i phone 15 watch",       # iphone
+        "claode is great",            # 中间拼写错误
+        "klaode is great",            # 中间拼写错误
+    ]
+    
+    for text in test_cases:
+        result = p.process(text)
+        print(f"输入: {text:<25} -> 输出: {result}")
+
 def get_phoneme_info(text):
     # pyrefly: ignore [missing-import]
     import jieba.posseg as pseg
@@ -147,4 +176,5 @@ def get_phoneme_info(text):
 if __name__ == "__main__":
     # run_demo()
     demo2()
-    get_phoneme_info('那个，昨天通知了一下展伞和里死，但是他也开心了，最后通知了夜凯。')
+    demo_english()
+    # get_phoneme_info('那个，昨天通知了一下展伞和里死，但是他也开心了，最后通知了夜凯。')
