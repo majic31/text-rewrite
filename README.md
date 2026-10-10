@@ -57,7 +57,11 @@ pip install -r requirements.txt
 在实际业务落地时，如果你发现某个错别字**没有按预期被纠正**，或者某个正常词**被意外误杀**，可以使用内置的诊断脚本来查看底层的真实打分情况，从而精准调优权重：
 
 ```bash
-python tests/check_weight_score.py
+python tests/check_weight_score.py # 检查权重工具
+python tests/demo_full_pipeline.py # demo，常规用法说明，包括分词情况也可以看到（get_phoneme_info函数）
+python tests/bench_entity_fuzzy.py # 性能测试
+python tests/demo_dynamic_static.py # 工程落地：全局热词与租户热词示例。另外也有一种用法，就是按照hotword作为key，pipeline作为value，存放到cache（或者lru_cache）中使用
+python tests/profile_entity_fuzzy.py # 内部开发者专用：微观耗时剖析与倒排索引压缩率监测
 ```
 
 该工具会直接输出底层 Numba 引擎的真实打分逻辑，帮助你快速理解权重的运作方式：
