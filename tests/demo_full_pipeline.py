@@ -80,12 +80,71 @@ def run_demo():
         print(f"输出结果: {result}")
         print(f"处理耗时: {(t1-t0)*1000:.2f} ms")
 
+
+def demo2():
+    from text_rewrite.pipeline import Pipeline
+    from text_rewrite.filters.regex import RegexFilter
+    from text_rewrite.filters.hotword import HotwordFilter
+    from text_rewrite.filters.entity_fuzzy import EntityAwareFuzzyFilter
+
+    # 1. 配置正则过滤器（清洗语气词）
+    regex_rules = {
+        r"\b(嗯|啊|哦|那个)\b": ""
+    }
+    regex_filter = RegexFilter(rules=regex_rules)
+
+    # 2. 配置精确热词过滤器（处理 10万级 安全大词表）
+    exact_filter = HotwordFilter(hotwords={"确定性长词": "替换词"})
+
+    # 3. 配置实体感知模糊过滤器 (EntityAwareFuzzyFilter)
+    # 语法: [标签]原词:权重 | 原词2:替换词:权重
+    fuzzy_rules = [
+        "张三:0.9",             # 无标签：全局极简配置（较高权重，发音类似张三的词，如展伞，都会被纠正为张三）
+        "[nr]叶开:1.0",         # 有标签：严格约束（必须是人名，且发音相似才纠正，适中权重）
+        "李四:0.7"              # 全局极简配置（里死 -> 李四，常规权重）
+    ]
+
+    f_rules_notag = ['叶开:0.75']    # 这里做了个没有词性的干预
+
+    # 这里显示了开启hmm模式下的用法，但真实环境中，即使开启hmm后，也很难保证词性一定被识别出来，性能反而会有5-6倍的损耗，所以不太建议开启（默认也是关闭的）
+    # 不开启hmm的情况下，热词还是尽量选择3个字以上的，并且阈值尽量调成0.6-0.8的样子.
+    # 如果热词都是短词（2个字的），则建议开启hmm，并将asr误识别的词加入到jieba词典，避免误杀。
+    entity_filter_hmm = EntityAwareFuzzyFilter(rules=fuzzy_rules, use_hmm=True)
+    entity_filter_default = EntityAwareFuzzyFilter(rules=fuzzy_rules, use_hmm=False)
+    entity_filter_no_tag = EntityAwareFuzzyFilter(rules=f_rules_notag)
+    # 4. 组装 Pipeline 引擎（顺序即执行顺序）
+    p_hmm = Pipeline()
+    p_hmm.add_filter(regex_filter)
+    p_hmm.add_filter(exact_filter)
+    p_hmm.add_filter(entity_filter_hmm)
+
+    p_default = Pipeline()
+    p_default.add_filter(entity_filter_default)
+
+    p_notag = Pipeline()
+    p_notag.add_filter(entity_filter_no_tag)
+
+    # 5. 真实流式调用
+    text = "那个，昨天通知了一下展伞和里死，但是他也开心了，最后通知了夜凯。"
+    result_hmm = p_hmm.process(text)
+    result_default = p_default.process(text)
+    result_notag = p_notag.process(text)
+    # 开了hmm后，词性是准确的，“也开”不会被替换，结果为：昨天通知了一下张三和李四，但是他也开心了，最后通知了叶开。
+    print(f'hmm result: {result_hmm}') 
+    # 没有开hmm后，未能猜出“夜凯”的人名词性，所以【叶开】没有被替换；但无标签的【张三】、【李四】依然被成功替换。结果为：那个，昨天通知了一下张三和李四，但是他也开心了，最后通知了夜凯。
+    print(f'default result: {result_default}')
+    # 没有词性后，可能会误替换。结果为：那个，昨天通知了一下展伞和里死，但是他叶开心了，最后通知了叶开。
+    print(f'notag result: {result_notag}')
+
 def get_phoneme_info(text):
+    # pyrefly: ignore [missing-import]
     import jieba.posseg as pseg
-    words = pseg.cut(text)
+    words = pseg.cut(text, HMM=True)
     for w in words:
         print(f"词语: {w.word} \t 词性: {w.flag}")
 
+
 if __name__ == "__main__":
-    run_demo()
-    get_phoneme_info('最后通知了夜凯。')
+    # run_demo()
+    demo2()
+    get_phoneme_info('那个，昨天通知了一下展伞和里死，但是他也开心了，最后通知了夜凯。')

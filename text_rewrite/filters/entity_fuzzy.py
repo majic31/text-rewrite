@@ -12,14 +12,17 @@ class EntityAwareFuzzyFilter(BaseFilter):
     Combines high-speed global phoneme matching with Jieba-based NER tagging
     to correct ASR homophone errors accurately and efficiently.
     """
-    def __init__(self, rules: List[str] = None, name: str = None):
+    def __init__(self, rules: List[str] = None, use_hmm: bool = False, name: str = None):
         """
         :param rules: A list of rule strings. 
                       Format: `[tag]word1:threshold1|word2:replacement2:threshold2`
                       tag, replacement, and threshold are optional.
                       Example: "[nr]叶开:0.8|张三:0.7", "李四:0.7", "欧阳锋"
+        :param use_hmm: Whether to enable Jieba's HMM feature. Enable this to discover unknown entities,
+                        at the cost of some performance (~50ms latency vs 5ms when False).
         """
         super().__init__(name=name)
+        self.use_hmm = use_hmm
         self.global_hotwords = {}
         self.global_thresholds = {}
         self.global_weights = {}
@@ -141,7 +144,7 @@ class EntityAwareFuzzyFilter(BaseFilter):
             return new_text
 
         from .jieba_ner import JiebaNERFilter
-        self.ner_filter = JiebaNERFilter(replace_callback=jieba_callback)
+        self.ner_filter = JiebaNERFilter(replace_callback=jieba_callback, use_hmm=self.use_hmm)
         self.ner_filter._load_model() # Pre-load it
         
         # Build prechecker

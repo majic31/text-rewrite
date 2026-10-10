@@ -16,7 +16,7 @@ def generate_rules(prefix: str, count: int) -> list:
     rules = []
     for _ in range(count):
         w = ''.join(random.choice(chars) for _ in range(2))
-        rules.append(f"[nr]{w}:0.7")
+        rules.append(f"{w}:0.7")
     return rules
 
 def main():
@@ -29,7 +29,7 @@ def main():
     t0 = time.perf_counter()
     static_rules = generate_rules("static", 10000)
     # 故意加一条冲突规则，测试动态词覆盖静态词的能力
-    static_rules.append("[nr]张三:李四:0.6") 
+    static_rules.append("张三:李四:0.7") 
     
     global_static_filter = EntityAwareFuzzyFilter(rules=static_rules)
     t1 = time.perf_counter()
@@ -68,7 +68,7 @@ def main():
     print("\n[模拟请求] 租户 A 发起请求...")
     tenant_a_dynamic_rules = generate_rules("dynamic_a", 500)
     # 动态热词优先：把张三替换成王五，这会截胡静态词库的张三->李四规则
-    tenant_a_dynamic_rules.append("[nr]张三:王五:0.7") 
+    tenant_a_dynamic_rules.append("张三:王五:0.7") 
 
     # 第一次请求：会触发冷启动编译
     text = "昨天通知了一下章三，让他明天过来。"

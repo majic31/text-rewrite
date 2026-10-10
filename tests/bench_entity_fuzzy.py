@@ -28,8 +28,8 @@ def run_benchmark(num_exact=9000, num_fuzzy=500):
         fuzzy_rules.append(f"{w}:0.7")
         
     # 加入我们的目标测试用例
-    fuzzy_rules.append("张三:0.7")
-    # fuzzy_rules.append("[nr]叶开:0.8")
+    fuzzy_rules.append("张三:0.8")
+    fuzzy_rules.append("[nr]叶开:0.8")
     fuzzy_rules.append("李四:0.7")
     
     print("正在初始化规则引擎...")
@@ -93,7 +93,7 @@ def run_benchmark(num_exact=9000, num_fuzzy=500):
     print(f"-> 千字长文本(预检安全，跳过 Jieba) 端到端平均处理耗时: {avg_safe_long_ms:.2f} ms")
 
 if __name__ == "__main__":
-    run_benchmark(num_exact=0, num_fuzzy=10000)
+    run_benchmark(num_exact=0, num_fuzzy=1)
     run_benchmark(num_exact=0, num_fuzzy=500)
     run_benchmark(num_exact=0, num_fuzzy=500)
     run_benchmark(num_exact=0, num_fuzzy=3000)

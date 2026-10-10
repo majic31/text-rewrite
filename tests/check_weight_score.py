@@ -74,3 +74,5 @@ if __name__ == "__main__":
     analyze_match(target_word="张三", test_text="展伞", weight=1.0)
 
     analyze_match(target_word="安康", test_text="安刊", weight=0.7)
+
+    analyze_match(target_word="叶开", test_text="夜凯", weight=0.8)

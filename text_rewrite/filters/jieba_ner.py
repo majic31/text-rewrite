@@ -9,13 +9,15 @@ class JiebaNERFilter(BaseFilter):
     Extremely fast POS/NER Filter using Jieba.
     Uses `jieba.posseg` to perform POS tagging.
     """
-    def __init__(self, replace_callback: Callable[[Any, str], str] = None, name: str = None):
+    def __init__(self, replace_callback: Callable[[Any, str], str] = None, use_hmm: bool = False, name: str = None):
         """
         :param replace_callback: A custom function that takes the jieba.posseg output (generator of pairs)
                                  and returns the modified text string.
+        :param use_hmm: Whether to use HMM in jieba.posseg.cut. Default is False for max speed.
         """
         super().__init__(name=name)
         self.replace_callback = replace_callback
+        self.use_hmm = use_hmm
         self._posseg = None
         self._loaded = False
 
@@ -53,7 +55,7 @@ class JiebaNERFilter(BaseFilter):
         try:
             # pseg.cut returns a generator of pair(word, flag)
             # flag corresponds to POS tag, e.g., 'nr' for person name
-            terms = list(self._posseg.cut(text, HMM=False))
+            terms = list(self._posseg.cut(text, HMM=self.use_hmm))
             
             if self.replace_callback:
                 return self.replace_callback(terms, text)
