@@ -27,247 +27,253 @@ try:
     if os.environ.get("DISABLE_NUMBA", "0") == "1":
         raise ImportError("环境变量强制禁用了 Numba")
         
-    from numba import jit, njit
-    import numba
+    from numba import njit
     HAS_NUMBA = True
     logging.debug("Numba 可用，使用 JIT 加速")
-except ImportError:
+except ImportError as _e:
     HAS_NUMBA = False
-    logging.debug("Numba 不可用，使用纯 Python")
+    logging.warning(f"Numba 未启用（{_e}），模糊匹配将以纯 Python 运行，结果一致但速度显著变慢")
+
+    def njit(*args, **kwargs):
+        """Numba 不可用时的空装饰器：同一份 DP 内核直接以纯 Python 执行，保证结果与 JIT 版完全一致。"""
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+        return lambda f: f
 
 
 # =============================================================================
-# Numba 加速版本
+# Numba 加速版本（无 Numba 时由空装饰器降级为纯 Python）
 # =============================================================================
 
-if HAS_NUMBA:
-    @njit(cache=True)
-    def _fuzzy_substring_distance_numba(main_codes: np.ndarray, sub_codes: np.ndarray) -> float:
-        """
-        Numba 加速的模糊子串距离计算
-        
-        使用整数编码代替字符串，大幅提升性能。
-        """
-        n = len(sub_codes)
-        m = len(main_codes)
-        
-        if n == 0 or m == 0:
-            return float(n)
-        
-        # DP 矩阵
-        dp = np.zeros((n + 1, m + 1), dtype=np.float32)
-        
-        # 初始化第一列
-        for i in range(1, n + 1):
-            dp[i, 0] = float(i)
-        
-        # 填充 DP 矩阵
-        for i in range(1, n + 1):
-            for j in range(1, m + 1):
-                # 计算代价：相同=0，不同=1
-                if sub_codes[i-1] == main_codes[j-1]:
-                    cost = 0.0
-                else:
-                    cost = 1.0
-                
-                dp[i, j] = min(
-                    dp[i-1, j] + 1.0,       # 删除
-                    dp[i, j-1] + 1.0,       # 插入
-                    dp[i-1, j-1] + cost     # 替换/匹配
-                )
-        
-        # 找最小距离
-        min_dist = dp[n, 1]
-        for j in range(2, m + 1):
-            if dp[n, j] < min_dist:
-                min_dist = dp[n, j]
-        
-        return min_dist
-
-
-    @njit(cache=True)
-    def _fuzzy_search_constrained_numba(
-        hw_codes: np.ndarray,    # (n,) int32  phoneme value 编码
-        hw_langs: np.ndarray,    # (n,) int32  0=zh 1=en 2=other
-        hw_is_tone: np.ndarray,  # (n,) int32  是否声调音素
-        inp_codes: np.ndarray,   # (m,) int32
-        inp_langs: np.ndarray,   # (m,) int32
-        inp_is_ws: np.ndarray,   # (m,) int32  is_word_start
-        inp_is_we: np.ndarray,   # (m,) int32  is_word_end
-        zh_cost: np.ndarray,     # (N,N) float32  预计算 zh-zh 代价矩阵
-        threshold: float,
-    ):
-        """
-        Numba-加速的边界约束模糊子串搜索 DP。
-
-        返回:
-            out_scores (MAX_RES,) float64
-            out_starts (MAX_RES,) int32  -- input 中 0-indexed 起始位置
-            out_ends   (MAX_RES,) int32  -- DP 列索引（1-indexed，exclusive）
-            n_res      int
-        """
-        n = len(hw_codes)
-        m = len(inp_codes)
-        MAX_RES = 32
-
-        out_scores = np.zeros(MAX_RES, dtype=np.float64)
-        out_starts = np.zeros(MAX_RES, dtype=np.int32)
-        out_ends   = np.zeros(MAX_RES, dtype=np.int32)
-        n_res = 0
-
-        if n == 0 or m == 0:
-            return out_scores, out_starts, out_ends, 0
-
-        INF = 1e18
-        mat_n = zh_cost.shape[0]
-
-        # dp[i,j]: hw 前 i 个音素匹配到 input[j-1] 时的最小编辑距离
-        dp = np.full((n + 1, m + 1), INF, dtype=np.float64)
-        # sc[i,j]: 追踪匹配起始列（dp 列坐标，0-indexed）
-        sc = np.zeros((n + 1, m + 1), dtype=np.int32)
-
-        # 第 0 行：允许从词起始边界开始
-        dp[0, 0] = 0.0
-        sc[0, 0] = 0
+@njit(cache=True)
+def _fuzzy_substring_distance_numba(main_codes: np.ndarray, sub_codes: np.ndarray) -> float:
+    """
+    Numba 加速的模糊子串距离计算
+    
+    使用整数编码代替字符串，大幅提升性能。
+    """
+    n = len(sub_codes)
+    m = len(main_codes)
+    
+    if n == 0 or m == 0:
+        return float(n)
+    
+    # DP 矩阵
+    dp = np.zeros((n + 1, m + 1), dtype=np.float32)
+    
+    # 初始化第一列
+    for i in range(1, n + 1):
+        dp[i, 0] = float(i)
+    
+    # 填充 DP 矩阵
+    for i in range(1, n + 1):
         for j in range(1, m + 1):
-            # inp_is_ws[j] 对应 input_info[j]（0-indexed），即 dp 列 j+1 起点
-            # 与 Python 版对齐：`elif j < m and input_info[j][2]`
-            if j < m and inp_is_ws[j] == 1:
-                dp[0, j] = 0.0
-                sc[0, j] = j
-
-        # 填充 DP
-        for i in range(1, n + 1):
-            hc = hw_codes[i - 1]
-            hl = hw_langs[i - 1]
-            ht = hw_is_tone[i - 1]
-
-            for j in range(1, m + 1):
-                ic = inp_codes[j - 1]
-                il = inp_langs[j - 1]
-
-                # 计算替换代价
-                if hl != il:
-                    cost = 1.0
-                elif hc == ic:
-                    cost = 0.0
-                elif hl == 0:  # zh-zh 且值不同
-                    if ht == 1:  # hw 音素是声调，误识容忍
-                        cost = 0.5
-                    elif hc < mat_n and ic < mat_n:
-                        cost = zh_cost[hc, ic]
-                    else:
-                        cost = 1.0
-                else:  # en-en 或其他：精确匹配
-                    cost = 1.0
-
-                d_match = dp[i - 1, j - 1] + cost
-                d_del   = dp[i - 1, j]     + 1.0
-                d_ins   = dp[i,     j - 1] + 1.0
-
-                best = d_match
-                src  = 0  # 0=match/replace  1=del  2=ins
-                if d_del < best:
-                    best = d_del
-                    src  = 1
-                if d_ins < best:
-                    best = d_ins
-                    src  = 2
-
-                dp[i, j] = best
-                if src == 0:
-                    sc[i, j] = sc[i - 1, j - 1]
-                elif src == 1:
-                    sc[i, j] = sc[i - 1, j]
-                else:
-                    sc[i, j] = sc[i, j - 1]
-
-        # 收集词终止边界处的最优结果（每个终止位置保留最高分）
-        best_sc_per_end  = np.full(m + 1, -1.0, dtype=np.float64)
-        best_st_per_end  = np.zeros(m + 1,  dtype=np.int32)
-
-        for j in range(1, m + 1):
-            if inp_is_we[j - 1] == 0:
-                continue
-            dist = dp[n, j]
-            if dist >= n * 0.8:
-                continue
-            score = 1.0 - dist / n
-            if score < threshold:
-                continue
-            if score > best_sc_per_end[j]:
-                best_sc_per_end[j] = score
-                best_st_per_end[j] = sc[n, j]
-
-        for j in range(1, m + 1):
-            s = best_sc_per_end[j]
-            if s < 0.0:
-                continue
-            if n_res >= MAX_RES:
-                break
-            out_scores[n_res] = s
-            out_starts[n_res] = best_st_per_end[j]
-            out_ends[n_res]   = j
-            n_res += 1
-
-        return out_scores, out_starts, out_ends, n_res
-
-
-    @njit(cache=True)
-    def _batch_search_constrained_numba(
-        flat_codes: np.ndarray,   # 所有热词音素编码拼接 int32
-        flat_langs: np.ndarray,   # int32
-        flat_tone: np.ndarray,    # int32
-        offsets: np.ndarray,      # (H+1,) int64  热词 h 的音素区间 [offsets[h], offsets[h+1])
-        cand_ids: np.ndarray,     # (K,) int64  候选热词 id（按期望的输出顺序）
-        inp_codes: np.ndarray,
-        inp_langs: np.ndarray,
-        inp_is_ws: np.ndarray,
-        inp_is_we: np.ndarray,
-        zh_cost: np.ndarray,
-        threshold: float,
-    ):
-        """
-        对一批候选热词逐个执行 _fuzzy_search_constrained_numba，
-        一次 Numba 调用完成全部 DP，避免 K 次 Python 往返。
-
-        返回 (out_cand, out_scores, out_starts, out_ends)，
-        out_cand 是 cand_ids 中的下标；顺序为候选顺序、同一候选内按终止位置升序，
-        与逐个调用的结果完全一致。
-        """
-        cap = 64
-        o_k  = np.empty(cap, dtype=np.int64)
-        o_sc = np.empty(cap, dtype=np.float64)
-        o_st = np.empty(cap, dtype=np.int32)
-        o_en = np.empty(cap, dtype=np.int32)
-        cnt = 0
-        for k in range(len(cand_ids)):
-            h = cand_ids[k]
-            a = offsets[h]
-            b = offsets[h + 1]
-            sc, st, en, nr = _fuzzy_search_constrained_numba(
-                flat_codes[a:b], flat_langs[a:b], flat_tone[a:b],
-                inp_codes, inp_langs, inp_is_ws, inp_is_we,
-                zh_cost, threshold,
+            # 计算代价：相同=0，不同=1
+            if sub_codes[i-1] == main_codes[j-1]:
+                cost = 0.0
+            else:
+                cost = 1.0
+            
+            dp[i, j] = min(
+                dp[i-1, j] + 1.0,       # 删除
+                dp[i, j-1] + 1.0,       # 插入
+                dp[i-1, j-1] + cost     # 替换/匹配
             )
-            for r in range(nr):
-                if cnt >= cap:
-                    cap *= 2
-                    n_k = np.empty(cap, dtype=np.int64)
-                    n_sc = np.empty(cap, dtype=np.float64)
-                    n_st = np.empty(cap, dtype=np.int32)
-                    n_en = np.empty(cap, dtype=np.int32)
-                    n_k[:cnt] = o_k[:cnt]
-                    n_sc[:cnt] = o_sc[:cnt]
-                    n_st[:cnt] = o_st[:cnt]
-                    n_en[:cnt] = o_en[:cnt]
-                    o_k, o_sc, o_st, o_en = n_k, n_sc, n_st, n_en
-                o_k[cnt] = k
-                o_sc[cnt] = sc[r]
-                o_st[cnt] = st[r]
-                o_en[cnt] = en[r]
-                cnt += 1
-        return o_k[:cnt], o_sc[:cnt], o_st[:cnt], o_en[:cnt]
+    
+    # 找最小距离
+    min_dist = dp[n, 1]
+    for j in range(2, m + 1):
+        if dp[n, j] < min_dist:
+            min_dist = dp[n, j]
+    
+    return min_dist
+
+
+@njit(cache=True)
+def _fuzzy_search_constrained_numba(
+    hw_codes: np.ndarray,    # (n,) int32  phoneme value 编码
+    hw_langs: np.ndarray,    # (n,) int32  0=zh 1=en 2=other
+    hw_is_tone: np.ndarray,  # (n,) int32  是否声调音素
+    inp_codes: np.ndarray,   # (m,) int32
+    inp_langs: np.ndarray,   # (m,) int32
+    inp_is_ws: np.ndarray,   # (m,) int32  is_word_start
+    inp_is_we: np.ndarray,   # (m,) int32  is_word_end
+    zh_cost: np.ndarray,     # (N,N) float32  预计算 zh-zh 代价矩阵
+    threshold: float,
+):
+    """
+    Numba-加速的边界约束模糊子串搜索 DP。
+
+    返回:
+        out_scores (MAX_RES,) float64
+        out_starts (MAX_RES,) int32  -- input 中 0-indexed 起始位置
+        out_ends   (MAX_RES,) int32  -- DP 列索引（1-indexed，exclusive）
+        n_res      int
+    """
+    n = len(hw_codes)
+    m = len(inp_codes)
+    # 每个终止位置至多产生 1 个结果，按输入长度分配即可容纳全部结果。
+    # （旧版写死 32，长文本中同一热词超过 32 处匹配时会被静默截断）
+    MAX_RES = m
+
+    out_scores = np.zeros(MAX_RES, dtype=np.float64)
+    out_starts = np.zeros(MAX_RES, dtype=np.int32)
+    out_ends   = np.zeros(MAX_RES, dtype=np.int32)
+    n_res = 0
+
+    if n == 0 or m == 0:
+        return out_scores, out_starts, out_ends, 0
+
+    INF = 1e18
+    mat_n = zh_cost.shape[0]
+
+    # dp[i,j]: hw 前 i 个音素匹配到 input[j-1] 时的最小编辑距离
+    dp = np.full((n + 1, m + 1), INF, dtype=np.float64)
+    # sc[i,j]: 追踪匹配起始列（dp 列坐标，0-indexed）
+    sc = np.zeros((n + 1, m + 1), dtype=np.int32)
+
+    # 第 0 行：允许从词起始边界开始
+    dp[0, 0] = 0.0
+    sc[0, 0] = 0
+    for j in range(1, m + 1):
+        # inp_is_ws[j] 对应 input_info[j]（0-indexed），即 dp 列 j+1 起点
+        # 与 Python 版对齐：`elif j < m and input_info[j][2]`
+        if j < m and inp_is_ws[j] == 1:
+            dp[0, j] = 0.0
+            sc[0, j] = j
+
+    # 填充 DP
+    for i in range(1, n + 1):
+        hc = hw_codes[i - 1]
+        hl = hw_langs[i - 1]
+        ht = hw_is_tone[i - 1]
+
+        for j in range(1, m + 1):
+            ic = inp_codes[j - 1]
+            il = inp_langs[j - 1]
+
+            # 计算替换代价
+            if hl != il:
+                cost = 1.0
+            elif hc == ic:
+                cost = 0.0
+            elif hl == 0:  # zh-zh 且值不同
+                if ht == 1:  # hw 音素是声调，误识容忍
+                    cost = 0.5
+                elif hc < mat_n and ic < mat_n:
+                    cost = zh_cost[hc, ic]
+                else:
+                    cost = 1.0
+            else:  # en-en 或其他：精确匹配
+                cost = 1.0
+
+            d_match = dp[i - 1, j - 1] + cost
+            d_del   = dp[i - 1, j]     + 1.0
+            d_ins   = dp[i,     j - 1] + 1.0
+
+            best = d_match
+            src  = 0  # 0=match/replace  1=del  2=ins
+            if d_del < best:
+                best = d_del
+                src  = 1
+            if d_ins < best:
+                best = d_ins
+                src  = 2
+
+            dp[i, j] = best
+            if src == 0:
+                sc[i, j] = sc[i - 1, j - 1]
+            elif src == 1:
+                sc[i, j] = sc[i - 1, j]
+            else:
+                sc[i, j] = sc[i, j - 1]
+
+    # 收集词终止边界处的最优结果（每个终止位置保留最高分）
+    best_sc_per_end  = np.full(m + 1, -1.0, dtype=np.float64)
+    best_st_per_end  = np.zeros(m + 1,  dtype=np.int32)
+
+    for j in range(1, m + 1):
+        if inp_is_we[j - 1] == 0:
+            continue
+        dist = dp[n, j]
+        if dist >= n * 0.8:
+            continue
+        score = 1.0 - dist / n
+        if score < threshold:
+            continue
+        if score > best_sc_per_end[j]:
+            best_sc_per_end[j] = score
+            best_st_per_end[j] = sc[n, j]
+
+    for j in range(1, m + 1):
+        s = best_sc_per_end[j]
+        if s < 0.0:
+            continue
+        if n_res >= MAX_RES:
+            break
+        out_scores[n_res] = s
+        out_starts[n_res] = best_st_per_end[j]
+        out_ends[n_res]   = j
+        n_res += 1
+
+    return out_scores, out_starts, out_ends, n_res
+
+
+@njit(cache=True)
+def _batch_search_constrained_numba(
+    flat_codes: np.ndarray,   # 所有热词音素编码拼接 int32
+    flat_langs: np.ndarray,   # int32
+    flat_tone: np.ndarray,    # int32
+    offsets: np.ndarray,      # (H+1,) int64  热词 h 的音素区间 [offsets[h], offsets[h+1])
+    cand_ids: np.ndarray,     # (K,) int64  候选热词 id（按期望的输出顺序）
+    inp_codes: np.ndarray,
+    inp_langs: np.ndarray,
+    inp_is_ws: np.ndarray,
+    inp_is_we: np.ndarray,
+    zh_cost: np.ndarray,
+    threshold: float,
+):
+    """
+    对一批候选热词逐个执行 _fuzzy_search_constrained_numba，
+    一次 Numba 调用完成全部 DP，避免 K 次 Python 往返。
+
+    返回 (out_cand, out_scores, out_starts, out_ends)，
+    out_cand 是 cand_ids 中的下标；顺序为候选顺序、同一候选内按终止位置升序，
+    与逐个调用的结果完全一致。
+    """
+    cap = 64
+    o_k  = np.empty(cap, dtype=np.int64)
+    o_sc = np.empty(cap, dtype=np.float64)
+    o_st = np.empty(cap, dtype=np.int32)
+    o_en = np.empty(cap, dtype=np.int32)
+    cnt = 0
+    for k in range(len(cand_ids)):
+        h = cand_ids[k]
+        a = offsets[h]
+        b = offsets[h + 1]
+        sc, st, en, nr = _fuzzy_search_constrained_numba(
+            flat_codes[a:b], flat_langs[a:b], flat_tone[a:b],
+            inp_codes, inp_langs, inp_is_ws, inp_is_we,
+            zh_cost, threshold,
+        )
+        for r in range(nr):
+            if cnt >= cap:
+                cap *= 2
+                n_k = np.empty(cap, dtype=np.int64)
+                n_sc = np.empty(cap, dtype=np.float64)
+                n_st = np.empty(cap, dtype=np.int32)
+                n_en = np.empty(cap, dtype=np.int32)
+                n_k[:cnt] = o_k[:cnt]
+                n_sc[:cnt] = o_sc[:cnt]
+                n_st[:cnt] = o_st[:cnt]
+                n_en[:cnt] = o_en[:cnt]
+                o_k, o_sc, o_st, o_en = n_k, n_sc, n_st, n_en
+            o_k[cnt] = k
+            o_sc[cnt] = sc[r]
+            o_st[cnt] = st[r]
+            o_en[cnt] = en[r]
+            cnt += 1
+    return o_k[:cnt], o_sc[:cnt], o_st[:cnt], o_en[:cnt]
 
 
 # =============================================================================
@@ -521,9 +527,6 @@ class NumbaSubstringSearch:
         精筛：input 已预编码，只对热词部分重新编码。
         避免在 for-hotword 循环中反复编码同一份 input，性能提升为 O(1) input 编码。
         """
-        if not HAS_NUMBA:
-            return None
-
         hw_codes, hw_langs, hw_is_tone, _, _ = self._encode(hw_info)
 
         self._ensure_zh_cost()
@@ -577,9 +580,6 @@ class NumbaSubstringSearch:
         threshold: float = 0.6,
     ) -> Dict[str, List[Tuple[float, int, int]]]:
         """批量对多个候选热词进行 DP，仅有一次 Python 到 Numba 的调用开销"""
-        if not HAS_NUMBA:
-            return {}
-            
         cand_ids = []
         valid_keys = []
         for k in candidates_keys:
@@ -618,12 +618,9 @@ class NumbaSubstringSearch:
         self, hw_info, input_info, threshold: float = 0.6
     ) -> List[Tuple[float, int, int]]:
         """
-        执行 Numba 精细搜索（保留原接口，内部复用 search_with_encoded_input）。
-        若 Numba 不可用则返回 None。
+        执行精细搜索（保留原接口，内部复用 search_with_encoded_input）。
+        无 Numba 时以纯 Python 执行同一份内核。
         """
-        if not HAS_NUMBA:
-            return None
-
         inp_codes, inp_langs, _, inp_is_ws, inp_is_we = self._encode(input_info)
         return self.search_with_encoded_input(
             hw_info, inp_codes, inp_langs, inp_is_ws, inp_is_we, threshold

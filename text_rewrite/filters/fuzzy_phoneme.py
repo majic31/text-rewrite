@@ -1,7 +1,7 @@
 import logging
 from typing import Dict
 from .base import BaseFilter
-from ..utils.algo_phoneme import get_phoneme_info, get_phoneme_seq
+from ..utils.algo_phoneme import get_phoneme_info
 from ..utils.rag_fast import FastRAG
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,9 @@ class FuzzyPhonemeFilter(BaseFilter):
             
         hw_dict = {}
         for original, replacement in hotwords.items():
-            phonemes = get_phoneme_seq(original)
+            # 必须与 process() 中输入侧使用同一个音素化函数，否则：
+            # 英文（整词 vs 逐字母）、多音字（逐字 vs 词组注音）、轻声（'0' vs '5'）都会对不上
+            phonemes = get_phoneme_info(original)
             hw_dict[original] = phonemes
             self.hotword_replacements[original] = replacement
             self._hw_info_cache[original] = [p.info for p in phonemes]
