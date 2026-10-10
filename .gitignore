@@ -133,3 +133,4 @@ cython_debug/
 .Trashes
 ehthumbs.db
 Thumbs.db
+tests/compare_perf.py
